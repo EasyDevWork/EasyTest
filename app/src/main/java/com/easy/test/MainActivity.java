@@ -1,45 +1,64 @@
 package com.easy.test;
 
-import androidx.appcompat.app.AppCompatActivity;
-
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
-import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.RemoteException;
 import android.util.Log;
 import android.view.View;
+import android.widget.TextView;
 
-import com.easy.aidl.IBaseAidlInterface;
+import androidx.appcompat.app.AppCompatActivity;
+
+import com.easy.aidl.Book;
+import com.easy.aidl.BookController;
+import com.easy.aidl.IAdilListener;
 
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
-    IBaseAidlInterface iBaseAidlInterface;
 
-    ServiceConnection connection = new ServiceConnection() {
+    private BookController bookController;
+
+    private boolean connected;
+    int i;
+    private List<Book> bookList;
+    TextView tvScreen;
+
+    private ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
-            iBaseAidlInterface = IBaseAidlInterface.Stub.asInterface(service);
-            if (iBaseAidlInterface != null) {
-                try {
-                    Log.d("RemoteValue", "int =" + iBaseAidlInterface.getInt());
-                    Log.d("RemoteValue", "long =" + iBaseAidlInterface.getLong());
-                    Log.d("RemoteValue", "boolean =" + iBaseAidlInterface.getBoolean());
-                    Log.d("RemoteValue", "float =" + iBaseAidlInterface.getFloat());
-                    Log.d("RemoteValue", "double =" + iBaseAidlInterface.getDouble());
-                    Log.d("RemoteValue", "string =" + iBaseAidlInterface.getString());
-                } catch (Exception e) {
-                    Log.d("RemoteValue", e.getMessage());
-                }
+            bookController = BookController.Stub.asInterface(service);
+            connected = true;
+            try {
+                //添加回调监听
+                bookController.registerListener(iAdilListener);
+            } catch (RemoteException e) {
+                e.printStackTrace();
             }
+            Log.d("TestAidlClient", "client_Connected name=" + name);
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
+            connected = false;
+            bookController = null;
+            Log.d("TestAidlClient", "client_Disconnected name=" + name);
+        }
+    };
+    private IAdilListener iAdilListener = new IAdilListener.Stub() {
+
+        @Override
+        public void onOperationCompleted(final Book result) throws RemoteException {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    tvScreen.setText("two add book=" + result.toString());
+                }
+            });
         }
     };
 
@@ -47,35 +66,92 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        tvScreen = findViewById(R.id.tvScreen);
+        bindService();
     }
 
-    public void onBind(View view) {
-        Intent intent = new Intent();
-        intent.setAction("RemoteAIDL");//要与服务端service下声明的action名称一致
-        intent.setPackage("com.easy"); //此处设置应用A的包名
-        Intent newIntent = buildExplicitIntent(MainActivity.this, intent);
-        boolean isbind = getApplicationContext().bindService(newIntent, connection, Context.BIND_AUTO_CREATE);
-        Log.d("RemoteValue", "isbind= " + isbind);
-    }
-
-    public void onUnBind(View view) {
-        unbindService(connection);
-    }
-
-    public Intent buildExplicitIntent(Context context, Intent intent) {
-        PackageManager pm = context.getPackageManager();
-        List<ResolveInfo> resolveInfo = pm.queryIntentServices(intent, 0);
-        if (resolveInfo.size() != 1) {
-            return null;
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (connected) {
+            unbindService(serviceConnection);
+            try {
+                bookController.unregisterListener(iAdilListener);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
         }
-        ResolveInfo serviceInfo = resolveInfo.get(0);
-        String packageName = serviceInfo.serviceInfo.packageName;
-        String className = serviceInfo.serviceInfo.name;
-        ComponentName component = new ComponentName(packageName, className);
-        // Create a new intent. Use the old one for extras and such reuse
-        Intent explicitIntent = new Intent(intent);
-        // Set the component to be explicit
-        explicitIntent.setComponent(component);
-        return explicitIntent;
+    }
+
+    private void bindService() {
+        Intent intent = new Intent();
+        intent.setPackage("com.easy");//服务端包名
+        intent.setAction("com.easy.aidl.action");//服务端声明的action
+        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
+    }
+
+    public void getBook(View view) {
+        if (connected) {
+            try {
+                bookList = bookController.getBookList();
+                Log.d("TestAidlClient", bookList.toString());
+                tvScreen.setText(bookList.toString());
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+        } else {
+            Log.d("TestAidlClient", "连接失败");
+        }
+    }
+
+    public void addBookIn(View view) {
+        if (connected) {
+            i++;
+            Book book = new Book("ClientBook_in_" + i);
+            try {
+                bookController.addBookIn(book);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public void addBookOut(View view) {
+        if (connected) {
+            i++;
+            Book book = new Book("ClientBook_out_" + i);
+            try {
+                bookController.addBookOut(book);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public void addTwoBook(View view) {
+        if (connected) {
+            i++;
+            Book book2 = new Book("Client_add_" + i);
+            Book book1 = new Book("Client_add_" + i);
+            try {
+                bookController.addTwoBook(book1, book2);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public void addBook(View view) {
+        if (connected) {
+            i++;
+            Book book = new Book("ClientBook_" + i);
+            try {
+                bookController.addBookInOut(book);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+        } else {
+            Log.d("TestAidlClient", "连接失败");
+        }
     }
 }
